@@ -35,11 +35,14 @@ const (
 	RcloneNoopPath            = "/rc/noop"
 	RcloneSyncCopyPath        = "/sync/copy"
 	RcloneOperationsPurgePath = "/operations/purge"
+	RcloneOperationsList      = "/operations/list"
+	RcloneOperationsCopyFile  = "/operations/copyfile"
 	RcloneConfigCreatePath    = "/config/create"
 	RcloneConfigUpdatePath    = "/config/update"
 	RcloneListRemotesPath     = "/config/listremotes"
 	RcloneConfigDeletePath    = "/config/delete"
 	RcloneConfigGetPath       = "/config/get"
+	TritonConfigFileName      = "config.pbtxt"
 )
 
 type RCloneClient struct {
@@ -52,6 +55,27 @@ type RCloneClient struct {
 	namespace     string
 	configChan    chan config.AgentConfiguration
 	configHandler *config.AgentConfigHandler
+}
+
+type RcloneList struct {
+	Fs     string `json:"fs"`
+	Remote string `json:"remote"`
+}
+
+type RcloneListItem struct {
+	IsDir bool   `json:"isDir"`
+	Name  string `json:"name"`
+}
+
+type RcloneListItems struct {
+	Items []RcloneListItem `json:"list"`
+}
+
+type RcloneCopyFile struct {
+	SrcFs     string `json:"srcFs"`
+	SrcRemote string `json:"srcRemote"`
+	DstFs     string `json:"dstFs"`
+	DstRemote string `json:"dstRemote"`
 }
 
 type Noop struct {
@@ -234,7 +258,9 @@ func (r *RCloneClient) createUriWithConfig(uri string, rawConfig []byte) (string
 	if err != nil {
 		return "", err
 	}
-
+	if len(rawConfig) == 0 {
+		return uri, nil
+	}
 	config, err := r.parseRcloneConfig(rawConfig)
 	if err != nil {
 		return "", err
@@ -311,9 +337,10 @@ func pathExists(path string) (bool, error) {
 }
 
 // Call Rclone /sync/copy
-func (r *RCloneClient) Copy(modelName string, srcUri string, config []byte) (string, error) {
+func (r *RCloneClient) Copy(modelName string, srcUri string, artifactVersion *uint32, config []byte) (string, error) {
 	logger := r.logger.WithField("func", "Copy")
 
+	srcUri = strings.TrimSuffix(srcUri, "/")
 	var srcUpdated string
 	var err error
 	if len(config) > 0 {
@@ -336,10 +363,44 @@ func (r *RCloneClient) Copy(modelName string, srcUri string, config []byte) (str
 	}
 
 	dst := fmt.Sprintf("%s/%d", r.localPath, hash)
-	copy := RcloneCopy{
-		SrcFs:              srcUpdated,
-		DstFs:              dst,
-		CreateEmptySrcDirs: true,
+
+	artifactVersionDirFound := false
+	tritonConfigFileFound := false
+	if artifactVersion != nil && *artifactVersion > 0 {
+		items, err := r.listDir(srcUpdated)
+		if err != nil {
+			return "", fmt.Errorf("failed to list dir %s %w", srcUri, err)
+		}
+
+		artifactVersionStr := strconv.Itoa(int(*artifactVersion))
+		for _, item := range items {
+			if item.IsDir && item.Name == artifactVersionStr {
+				artifactVersionDirFound = true
+			} else if !item.IsDir && item.Name == TritonConfigFileName {
+				tritonConfigFileFound = true
+			}
+		}
+	}
+
+	var copy RcloneCopy
+	if artifactVersionDirFound {
+		artifactVersionSrc := fmt.Sprintf("%s/%d", srcUri, *artifactVersion)
+		artifactVersionDst := fmt.Sprintf("%s/%d", dst, *artifactVersion)
+		artifactVersionSrcWithConfig, err := r.createUriWithConfig(artifactVersionSrc, config)
+		if err != nil {
+			return "", err
+		}
+		copy = RcloneCopy{
+			SrcFs:              artifactVersionSrcWithConfig,
+			DstFs:              artifactVersionDst,
+			CreateEmptySrcDirs: true,
+		}
+	} else {
+		copy = RcloneCopy{
+			SrcFs:              srcUpdated,
+			DstFs:              dst,
+			CreateEmptySrcDirs: true,
+		}
 	}
 
 	logger.
@@ -359,13 +420,19 @@ func (r *RCloneClient) Copy(modelName string, srcUri string, config []byte) (str
 		return "", fmt.Errorf("Failed to sync/copy %s to %s %w", srcUri, dst, err)
 	}
 
+	if tritonConfigFileFound {
+		err = r.copyFile(srcUpdated, TritonConfigFileName, dst, TritonConfigFileName)
+		if err != nil {
+			return "", err
+		}
+	}
 	// Even if we had success from rclone the src may be empty so need to check
 	pathExists, err := pathExists(dst)
 	if err != nil {
 		return "", err
 	}
 	if !pathExists {
-		return "", fmt.Errorf("Failed to download from %s any files", srcUri)
+		return "", fmt.Errorf("failed to download from %s any files", srcUri)
 	}
 
 	return dst, nil
@@ -383,6 +450,65 @@ func (r *RCloneClient) copyWithConfigResync(b []byte) error {
 				return err
 			}
 		}
+	}
+	return nil
+}
+
+func (r *RCloneClient) listDir(fs string) ([]RcloneListItem, error) {
+	list := RcloneList{
+		Fs: fs,
+	}
+	b, err := json.Marshal(list)
+	if err != nil {
+		return nil, err
+	}
+	lsResponse, err := r.call(b, RcloneOperationsList)
+	if err != nil {
+		return nil, err
+	}
+	var listResponse RcloneListItems
+	err = json.Unmarshal(lsResponse, &listResponse)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal rclone list response %s %w", lsResponse, err)
+	}
+
+	return listResponse.Items, nil
+}
+
+func (r *RCloneClient) syncCopy(src string, dst string) error {
+	copy := RcloneCopy{
+		SrcFs:              src,
+		DstFs:              dst,
+		CreateEmptySrcDirs: true,
+	}
+
+	b, err := json.Marshal(copy)
+	if err != nil {
+		return err
+	}
+
+	_, err = r.call(b, RcloneSyncCopyPath)
+	return err
+}
+
+func (r *RCloneClient) copyFile(srcFs string, srcRemote string, dstFs string, dstRemote string) error {
+	copy := RcloneCopyFile{
+		SrcFs:     srcFs,
+		SrcRemote: srcRemote,
+		DstFs:     dstFs,
+		DstRemote: dstRemote,
+	}
+
+	r.logger.Infof("Copy file %s", copy)
+
+	b, err := json.Marshal(copy)
+	if err != nil {
+		return err
+	}
+
+	_, err = r.call(b, RcloneOperationsCopyFile)
+	if err != nil {
+		return err
 	}
 	return nil
 }

@@ -15,6 +15,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"testing"
 
 	"github.com/jarcoal/httpmock"
@@ -29,9 +30,25 @@ func createTestRCloneMockRespondersBasic(host string, port int, status int, body
 		httpmock.NewStringResponder(status, body))
 }
 
-func createTestRCloneMockResponders(host string, port int, status int, body string, createLocalFolder bool) {
+func createTestRCloneMockResponders(host string, port int, status int, body string, createLocalFolder bool, artifactVersion uint32) {
 	httpmock.RegisterResponder("POST", fmt.Sprintf("=~http://%s:%d/", host, port),
 		func(req *http.Request) (*http.Response, error) {
+			if req.URL.Path == "/operations/list" {
+				items, err := json.Marshal(RcloneListItems{
+					Items: []RcloneListItem{
+						{
+							Name:  strconv.Itoa(int(artifactVersion)),
+							IsDir: true,
+						},
+					},
+				})
+				if err != nil {
+					return nil, err
+				}
+				listResponseBody := string(items)
+
+				return httpmock.NewStringResponse(status, listResponseBody), nil
+			}
 			if status == http.StatusOK && createLocalFolder {
 				b, err := io.ReadAll(req.Body)
 				if err != nil {
@@ -47,6 +64,7 @@ func createTestRCloneMockResponders(host string, port int, status int, body stri
 					return nil, err
 				}
 			}
+
 			return httpmock.NewStringResponse(status, body), nil
 		})
 }
@@ -62,14 +80,16 @@ func createFakeRcloneClient(status int, body string) *RCloneClient {
 	return r
 }
 
-func createFakeRcloneClientForCopy(t *testing.T, status int, body string, createLocalFolder bool) *RCloneClient {
+func createFakeRcloneClientForCopy(t *testing.T, status int, body string, createLocalFolder bool, artifactVersion uint32) *RCloneClient {
 	logger := log.New()
 	log.SetLevel(log.DebugLevel)
 	host := "rclone-server"
 	port := 5572
+
 	config, _ := config.NewAgentConfigHandler("", "", logger, nil)
 	r := NewRCloneClient(host, port, t.TempDir(), logger, "default", config)
-	createTestRCloneMockResponders(host, port, status, body, createLocalFolder)
+	createTestRCloneMockResponders(host, port, status, body, createLocalFolder, artifactVersion)
+
 	return r
 }
 
@@ -90,6 +110,7 @@ func TestRcloneCopy(t *testing.T) {
 		modelName         string
 		createLocalFolder bool
 		uri               string
+		aritifactVersion  uint32
 		status            int
 		expectError       bool
 		body              string
@@ -127,6 +148,16 @@ func TestRcloneCopy(t *testing.T) {
 			expectError:       true,
 			expectedCallCount: 1,
 		},
+		{
+			name:              "artifactVersion",
+			modelName:         "iris",
+			uri:               "gs://seldon-models/triton/simple",
+			aritifactVersion:  1,
+			status:            200,
+			body:              "{}",
+			createLocalFolder: true,
+			expectedCallCount: 2,
+		},
 	}
 
 	t.Logf("Started")
@@ -137,8 +168,8 @@ func TestRcloneCopy(t *testing.T) {
 			httpmock.Activate()
 			defer httpmock.DeactivateAndReset()
 
-			r := createFakeRcloneClientForCopy(t, test.status, test.body, test.createLocalFolder)
-			_, err := r.Copy(test.modelName, test.uri, []byte{})
+			r := createFakeRcloneClientForCopy(t, test.status, test.body, test.createLocalFolder, test.aritifactVersion)
+			_, err := r.Copy(test.modelName, test.uri, &test.aritifactVersion, []byte{})
 
 			if !test.expectError {
 				g.Expect(err).To(BeNil())
@@ -146,7 +177,6 @@ func TestRcloneCopy(t *testing.T) {
 				g.Expect(err).ToNot(BeNil())
 			}
 			g.Expect(httpmock.GetTotalCallCount()).To(Equal(test.expectedCallCount))
-
 		})
 	}
 }
@@ -334,6 +364,13 @@ func TestCreateUriWithConfig(t *testing.T) {
 			uri:    "s3://models/iris",
 			config: []byte(`{"name":"s3"}`),
 			err:    true,
+		},
+		{
+			name:        "NilConfig",
+			uri:         "s3://models/iris",
+			config:      nil,
+			expectedUri: "s3://models/iris",
+			err:         false,
 		},
 	}
 	for _, test := range tests {
