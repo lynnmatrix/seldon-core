@@ -164,6 +164,8 @@ message ServerStatusResponse {
   int32 availableReplicas = 4;
   int32 numLoadedModelReplicas = 5;
   optional KubernetesMeta kubernetesMeta = 6;
+
+  int32 scaleToReplicas = 7;
 }
 
 message ServerReplicaResources {
@@ -187,8 +189,10 @@ message ModelStatusRequest {
 message ServerNotifyRequest {
   string name = 1;
   int32 expectedReplicas = 2;
-  bool shared = 3;
-  optional KubernetesMeta kubernetesMeta = 4;
+  int32 minReplicas = 3;
+  int32 maxReplicas = 4;
+  bool shared = 5;
+  optional KubernetesMeta kubernetesMeta = 6;
 }
 
 message ServerNotifyResponse {

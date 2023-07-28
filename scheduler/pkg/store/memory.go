@@ -733,6 +733,22 @@ func (m *MemoryStore) drainServerReplicaImpl(serverName string, replicaIdx int) 
 	return modelNames, nil
 }
 
+func (m *MemoryStore) UpdateServerScaleToReplicas(serverName string, scaleToReplicas int32) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if server, ok := m.store.servers[serverName]; ok {
+		server.SetScaleToReplicas(int(scaleToReplicas))
+		if m.eventHub != nil {
+			m.eventHub.PublishServerEvent(
+				serverUpdateEventSource,
+				coordinator.ServerEventMsg{ServerName: serverName},
+			)
+
+		}
+	}
+}
+
 func (m *MemoryStore) ServerNotify(request *pb.ServerNotifyRequest) error {
 	logger := m.logger.WithField("func", "MemoryServerNotify")
 	m.mu.Lock()
@@ -746,6 +762,8 @@ func (m *MemoryStore) ServerNotify(request *pb.ServerNotifyRequest) error {
 		m.store.servers[request.Name] = server
 	}
 	server.SetExpectedReplicas(int(request.ExpectedReplicas))
+	server.SetMinReplicas(int(request.MinReplicas))
+	server.SetMaxReplicas(int(request.MaxReplicas))
 	server.SetKubernetesMeta(request.KubernetesMeta)
 	return nil
 }

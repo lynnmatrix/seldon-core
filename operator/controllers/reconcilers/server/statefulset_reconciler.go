@@ -66,6 +66,14 @@ func toStatefulSet(meta metav1.ObjectMeta,
 	labels[constants.KubernetesNameLabelKey] = constants.ServerLabelValue
 	metaLabels := utils.MergeMaps(map[string]string{constants.KubernetesNameLabelKey: constants.ServerLabelValue}, labels)
 	templateLabels := utils.MergeMaps(map[string]string{constants.ServerLabelNameKey: meta.Name, constants.KubernetesNameLabelKey: constants.ServerLabelValue}, labels)
+
+	replicas := scaling.Replicas
+	if scaling.MinReplicas != nil && *scaling.MinReplicas > 0 && *replicas < *scaling.MinReplicas {
+		replicas = scaling.MinReplicas
+	} else if scaling.MaxReplicas != nil && *scaling.MaxReplicas > 0 && *replicas > *scaling.MaxReplicas {
+		replicas = scaling.MaxReplicas
+	}
+
 	ss := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        meta.Name,
@@ -75,7 +83,7 @@ func toStatefulSet(meta metav1.ObjectMeta,
 		},
 		Spec: appsv1.StatefulSetSpec{
 			ServiceName: meta.Name,
-			Replicas:    scaling.Replicas,
+			Replicas:    replicas,
 			Selector: &metav1.LabelSelector{
 				MatchLabels: map[string]string{constants.ServerLabelNameKey: meta.Name},
 			},

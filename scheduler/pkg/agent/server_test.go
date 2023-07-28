@@ -106,6 +106,10 @@ func (m *mockStore) DrainServerReplica(serverName string, replicaIdx int) ([]str
 	panic("implement me")
 }
 
+func (f mockStore) UpdateServerScaleToReplicas(serverName string, replicas int32) {
+	panic("implement me")
+}
+
 func (m *mockStore) GetAllModels() []string {
 	var modelNames []string
 	for modelName := range m.models {

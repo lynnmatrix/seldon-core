@@ -392,6 +392,10 @@ func (f fakeModelStore) DrainServerReplica(serverName string, replicaIdx int) ([
 	panic("implement me")
 }
 
+func (f fakeModelStore) UpdateServerScaleToReplicas(serverName string, replicas int32) {
+	panic("implement me")
+}
+
 func (f fakeModelStore) FailedScheduling(modelVersion *store.ModelVersion, reason string, reset bool) {
 	panic("implement me")
 }

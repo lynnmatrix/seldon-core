@@ -19,6 +19,9 @@ type ServerSnapshot struct {
 	Replicas         map[int]*ServerReplica
 	Shared           bool
 	ExpectedReplicas int
+	MinReplicas      int
+	MaxReplicas      int
+	ScaleToReplicas  int
 	KubernetesMeta   *pb.KubernetesMeta
 }
 
@@ -119,6 +122,7 @@ type ModelStore interface {
 	ServerNotify(request *pb.ServerNotifyRequest) error
 	RemoveServerReplica(serverName string, replicaIdx int) ([]string, error) // return previously loaded models
 	DrainServerReplica(serverName string, replicaIdx int) ([]string, error)  // return previously loaded models
+	UpdateServerScaleToReplicas(serverName string, scaleToReplicas int32)
 	FailedScheduling(modelVersion *ModelVersion, reason string, reset bool)
 	GetAllModels() []string
 }

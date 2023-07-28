@@ -11,6 +11,7 @@ package scheduler
 
 import (
 	"context"
+	"fmt"
 	"io"
 
 	grpc_retry "github.com/grpc-ecosystem/go-grpc-middleware/retry"
@@ -22,6 +23,7 @@ import (
 	"github.com/seldonio/seldon-core/apis/go/v2/mlops/scheduler"
 
 	"github.com/seldonio/seldon-core/operator/v2/apis/mlops/v1alpha1"
+	"github.com/seldonio/seldon-core/operator/v2/controllers/serverscaling"
 )
 
 func (s *SchedulerClient) ServerNotify(ctx context.Context, server *v1alpha1.Server) error {
@@ -41,9 +43,19 @@ func (s *SchedulerClient) ServerNotify(ctx context.Context, server *v1alpha1.Ser
 		replicas = 1
 	}
 
+	var minReplicas, maxReplicas int32
+	if server.Spec.MinReplicas != nil {
+		minReplicas = *server.Spec.MinReplicas
+	}
+	if server.Spec.MaxReplicas != nil {
+		maxReplicas = *server.Spec.MaxReplicas
+	}
+
 	request := &scheduler.ServerNotifyRequest{
 		Name:             server.GetName(),
 		ExpectedReplicas: replicas,
+		MinReplicas:      minReplicas,
+		MaxReplicas:      maxReplicas,
 		KubernetesMeta: &scheduler.KubernetesMeta{
 			Namespace:  server.GetNamespace(),
 			Generation: server.GetGeneration(),
@@ -118,6 +130,15 @@ func (s *SchedulerClient) SubscribeServerEvents(ctx context.Context, conn *grpc.
 			logger.Error(err, "Failed to update status", "model", event.ServerName)
 		}
 
+		// Try to update server replicas
+		if event.ScaleToReplicas > 0 && server.Status.Replicas != event.ScaleToReplicas {
+			if err := checkDesiredNumReplicas(server, event.ScaleToReplicas); err != nil {
+				logger.Error(err, "invalid number of server replicas")
+				continue
+			}
+			s.scaleServerReplicas(server, event.ScaleToReplicas)
+		}
+
 	}
 	return nil
 }
@@ -129,4 +150,40 @@ func (s *SchedulerClient) updateServerStatus(server *v1alpha1.Server) error {
 		return err
 	}
 	return nil
+}
+
+func checkDesiredNumReplicas(server *v1alpha1.Server, scaleToReplicas int32) error {
+	if !autoscalingEnabled(server) {
+		return fmt.Errorf("no autoscaling for server %s", server.Name)
+	}
+	minReplicas := int32(0)
+	if server.Spec.ScalingSpec.MinReplicas != nil {
+		minReplicas = *server.Spec.ScalingSpec.MinReplicas
+	}
+
+	maxReplicas := int32(0)
+	if server.Spec.ScalingSpec.MaxReplicas != nil {
+		maxReplicas = *server.Spec.ScalingSpec.MaxReplicas
+	}
+	if scaleToReplicas < minReplicas || scaleToReplicas < 1 {
+		return fmt.Errorf("violating min replicas %d / %d for server %s", minReplicas, scaleToReplicas, server.Name)
+	}
+
+	if scaleToReplicas > maxReplicas && (maxReplicas > 0) {
+		return fmt.Errorf("violating max replicas %d / %d for server %s", maxReplicas, scaleToReplicas, server.Name)
+	}
+
+	return nil
+}
+
+func autoscalingEnabled(server *v1alpha1.Server) bool {
+	return server.Spec.ScalingSpec.MinReplicas != nil || server.Spec.ScalingSpec.MaxReplicas != nil
+}
+
+func (sc *SchedulerClient) scaleServerReplicas(server *v1alpha1.Server, replicas int32) {
+	sc.serverScaleEvents <- serverscaling.ServerScaleEventMsg{
+		Namespace:  server.Namespace,
+		ServerName: server.Name,
+		Replicas:   replicas,
+	}
 }

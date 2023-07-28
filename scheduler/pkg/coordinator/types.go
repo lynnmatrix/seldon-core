@@ -11,6 +11,14 @@ package coordinator
 
 import "fmt"
 
+type ServerEventMsg struct {
+	ServerName string
+}
+
+func (m ServerEventMsg) String() string {
+	return m.ServerName
+}
+
 type ModelEventMsg struct {
 	ModelName    string
 	ModelVersion uint32

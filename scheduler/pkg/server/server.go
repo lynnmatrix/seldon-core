@@ -204,7 +204,7 @@ func NewSchedulerServer(
 		s.logger,
 		s.handleModelEvent,
 	)
-	eventHub.RegisterModelEventHandler(
+	eventHub.RegisterServerEventHandler(
 		serverEventHandlerName,
 		pendingEventsQueueSize,
 		s.logger,
@@ -435,6 +435,7 @@ func createServerStatusResponse(s *store.ServerSnapshot) *pb.ServerStatusRespons
 		ServerName:        s.Name,
 		AvailableReplicas: int32(len(s.Replicas)),
 		ExpectedReplicas:  int32(s.ExpectedReplicas),
+		ScaleToReplicas:   int32(s.ScaleToReplicas),
 		KubernetesMeta:    s.KubernetesMeta,
 	}
 

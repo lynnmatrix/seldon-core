@@ -25,7 +25,12 @@ import (
 
 	mlopsv1alpha1 "github.com/seldonio/seldon-core/operator/v2/apis/mlops/v1alpha1"
 	mlopscontrollers "github.com/seldonio/seldon-core/operator/v2/controllers/mlops"
+	"github.com/seldonio/seldon-core/operator/v2/controllers/serverscaling"
 	"github.com/seldonio/seldon-core/operator/v2/scheduler"
+)
+
+const (
+	pendingServerScaleEventsQueueSize int = 5
 )
 
 var (
@@ -82,10 +87,17 @@ func main() {
 		os.Exit(1)
 	}
 
+	// server scaling
+	serverScaleEvents := make(chan serverscaling.ServerScaleEventMsg, pendingServerScaleEventsQueueSize)
+	serverScaleCoordinator := serverscaling.NewCoordinator(serverScaleEvents, mgr.GetClient())
+	serverScaleCoordinator.StartWatchServerScaleEvents()
+
 	// Create scheduler client
 	schedulerClient := scheduler.NewSchedulerClient(logger,
 		mgr.GetClient(),
-		mgr.GetEventRecorderFor("scheduler-client"))
+		mgr.GetEventRecorderFor("scheduler-client"),
+		serverScaleEvents,
+	)
 
 	if err = (&mlopscontrollers.ModelReconciler{
 		Client:    mgr.GetClient(),

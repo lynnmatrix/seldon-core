@@ -19,6 +19,7 @@ import (
 )
 
 const (
+	topicServerEvents     = "server.event"
 	topicModelEvents      = "model.event"
 	topicExperimentEvents = "experiment.event"
 	topicPipelineEvents   = "pipeline.event"
@@ -38,6 +39,7 @@ var _ busV3.IDGenerator = (*SequenceGenerator)(nil)
 type EventHub struct {
 	bus                            *busV3.Bus
 	logger                         log.FieldLogger
+	serverEventHandlerChannels     []chan ServerEventMsg
 	modelEventHandlerChannels      []chan ModelEventMsg
 	experimentEventHandlerChannels []chan ExperimentEventMsg
 	pipelineEventHandlerChannels   []chan PipelineEventMsg
@@ -59,7 +61,7 @@ func NewEventHub(l log.FieldLogger) (*EventHub, error) {
 		bus:    bus,
 	}
 
-	hub.bus.RegisterTopics(topicModelEvents, topicExperimentEvents, topicPipelineEvents)
+	hub.bus.RegisterTopics(topicServerEvents, topicModelEvents, topicExperimentEvents, topicPipelineEvents)
 
 	return &hub, nil
 }

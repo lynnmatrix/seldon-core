@@ -101,6 +101,9 @@ type Server struct {
 	replicas         map[int]*ServerReplica
 	shared           bool
 	expectedReplicas int
+	minReplicas      int
+	maxReplicas      int
+	scaleToReplicas  int
 	kubernetesMeta   *pb.KubernetesMeta
 }
 
@@ -122,12 +125,27 @@ func (s *Server) CreateSnapshot(shallow bool, modelDetails bool) *ServerSnapshot
 		Replicas:         replicas,
 		Shared:           s.shared,
 		ExpectedReplicas: s.expectedReplicas,
+		MinReplicas:      s.minReplicas,
+		MaxReplicas:      s.maxReplicas,
+		ScaleToReplicas:  s.scaleToReplicas,
 		KubernetesMeta:   proto.Clone(s.kubernetesMeta).(*pb.KubernetesMeta),
 	}
 }
 
 func (s *Server) SetExpectedReplicas(replicas int) {
 	s.expectedReplicas = replicas
+}
+
+func (s *Server) SetMinReplicas(replicas int) {
+	s.minReplicas = replicas
+}
+
+func (s *Server) SetMaxReplicas(replicas int) {
+	s.maxReplicas = replicas
+}
+
+func (s *Server) SetScaleToReplicas(replicas int) {
+	s.scaleToReplicas = replicas
 }
 
 func (s *Server) SetKubernetesMeta(meta *pb.KubernetesMeta) {
@@ -140,6 +158,7 @@ func NewServer(name string, shared bool) *Server {
 		replicas:         make(map[int]*ServerReplica),
 		shared:           shared,
 		expectedReplicas: -1,
+		scaleToReplicas:  -1,
 	}
 }
 

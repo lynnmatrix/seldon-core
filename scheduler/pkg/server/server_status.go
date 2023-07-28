@@ -162,8 +162,7 @@ func (s *SchedulerServer) SubscribeServerStatus(req *pb.ServerSubscriptionReques
 	}
 }
 
-// TODO - Create a ServerStatusMsg type to disambiguate?
-func (s *SchedulerServer) handleServerEvent(event coordinator.ModelEventMsg) {
+func (s *SchedulerServer) handleServerEvent(event coordinator.ServerEventMsg) {
 	logger := s.logger.WithField("func", "handleServerEvent")
 	logger.Debugf("Got server state change for %s", event.String())
 
@@ -181,26 +180,10 @@ func (s *SchedulerServer) StopSendServerEvents() {
 	}
 }
 
-func (s *SchedulerServer) updateServerStatus(evt coordinator.ModelEventMsg) error {
-	logger := s.logger.WithField("func", "sendServerStatusEvent")
-
-	model, err := s.modelStore.GetModel(evt.ModelName)
-	if err != nil {
-		return err
-	}
-	modelVersion := model.GetVersion(evt.ModelVersion)
-	if modelVersion == nil {
-		logger.Warnf("Failed to find model version %s so ignoring event", evt.String())
-		return nil
-	}
-	if modelVersion.Server() == "" {
-		logger.Warnf("Empty server for %s so ignoring event", evt.String())
-		return nil
-	}
-
+func (s *SchedulerServer) updateServerStatus(evt coordinator.ServerEventMsg) error {
 	s.serverEventStream.pendingLock.Lock()
 	// we are coalescing events so we only send one event (the latest status) per server
-	s.serverEventStream.pendingEvents[modelVersion.Server()] = struct{}{}
+	s.serverEventStream.pendingEvents[evt.ServerName] = struct{}{}
 	if s.serverEventStream.trigger == nil {
 		s.serverEventStream.trigger = time.AfterFunc(defaultBatchWait, s.sendServerStatus)
 	}
@@ -218,7 +201,6 @@ func (s *SchedulerServer) sendServerStatus() {
 	pendingServers := s.serverEventStream.pendingEvents
 	s.serverEventStream.pendingEvents = map[string]struct{}{}
 	s.serverEventStream.pendingLock.Unlock()
-
 	// Inform subscriber
 	s.serverEventStream.mu.Lock()
 	defer s.serverEventStream.mu.Unlock()

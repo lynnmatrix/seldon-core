@@ -114,6 +114,11 @@ func (f mockStore) DrainServerReplica(serverName string, replicaIdx int) ([]stri
 	panic("implement me")
 }
 
+
+func (f mockStore) UpdateServerScaleToReplicas(serverName string, replicas int32) {
+	panic("implement me")
+}
+
 func (f mockStore) AddModelEventListener(c chan *store.ModelSnapshot) {
 
 }
