@@ -242,6 +242,7 @@ func main() {
 			modelLastUsedStatsWrapper.StatsKeeper,
 			modelDelayStatsWrapper.StatsKeeper,
 		},
+		logger,
 	)
 
 	rpHTTP := agent.NewReverseHTTPProxy(
