@@ -9,7 +9,13 @@ the Change License after the Change Date as each is defined in accordance with t
 
 package scheduler
 
+import "github.com/seldonio/seldon-core/scheduler/v2/pkg/store"
+
 type Scheduler interface {
 	Schedule(modelKey string) error
 	ScheduleFailedModels() ([]string, error)
+}
+
+type ServerScaler interface {
+	Scalable(serverKey string, replicas int, model *store.ModelVersion) bool
 }

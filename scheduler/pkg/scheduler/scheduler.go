@@ -27,15 +27,15 @@ type SimpleScheduler struct {
 	muSortAndUpdate sync.Mutex
 	store           store.ModelStore
 	logger          log.FieldLogger
+	scaler          ServerScaler
 	SchedulerConfig
 }
 
 type SchedulerConfig struct {
-	serverFilters        []filters.ServerFilter
-	serverSorts          []sorters.ServerSorter
-	replicaFilters       []filters.ReplicaFilter
-	replicaSorts         []sorters.ReplicaSorter
-	serverScalableFilter []filters.ReplicaFilter
+	serverFilters  []filters.ServerFilter
+	serverSorts    []sorters.ServerSorter
+	replicaFilters []filters.ReplicaFilter
+	replicaSorts   []sorters.ReplicaSorter
 }
 
 func DefaultSchedulerConfig(store store.ModelStore) SchedulerConfig {
@@ -44,7 +44,6 @@ func DefaultSchedulerConfig(store store.ModelStore) SchedulerConfig {
 		replicaFilters: []filters.ReplicaFilter{filters.AvailableMemoryReplicaFilter{}, filters.ExplainerFilter{}, filters.ReplicaDrainingFilter{}},
 		serverSorts:    []sorters.ServerSorter{},
 		replicaSorts:   []sorters.ReplicaSorter{sorters.ReplicaIndexSorter{}, sorters.AvailableMemorySorter{}, sorters.ModelAlreadyLoadedSorter{}},
-		serverScalableFilter: []filters.ReplicaFilter{filters.ExplainerFilter{}},
 	}
 }
 
@@ -54,6 +53,7 @@ func NewSimpleScheduler(logger log.FieldLogger,
 	s := &SimpleScheduler{
 		store:           store,
 		logger:          logger.WithField("Name", "SimpleScheduler"),
+		scaler:          NewMemoryServerScaler(store, DefaultScalerConfig(), logger),
 		SchedulerConfig: schedulerConfig,
 	}
 	return s
@@ -168,27 +168,28 @@ func (s *SimpleScheduler) scheduleToServer(modelName string) error {
 			// we need a lock here, we could have many goroutines at sorting
 			// without the store being reflected and hence sorting on stale values
 			s.muSortAndUpdate.Lock()
-			candidateReplicas = s.filterReplicas(latestModel, candidateServer)
-			if len(candidateReplicas.ChosenReplicas) < latestModel.DesiredReplicas() {
-				
-				s.muSortAndUpdate.Unlock()
+			candidateReplicas = filterReplicas(s.replicaFilters, latestModel, candidateServer, s.logger)
 
+			if len(candidateReplicas.ChosenReplicas) < latestModel.DesiredReplicas() {
 				scaleToReplicas := calScaleToReplicas(candidateServer, latestModel.DesiredReplicas(), len(candidateReplicas.ChosenReplicas))
-				if s.serverScalable(candidateServer, latestModel, scaleToReplicas) {
+
+				if s.scaler.Scalable(candidateServer.Name, scaleToReplicas, latestModel) {
 					logger.Debugf("scale up server %s to %d replicas for model %s", candidateServer.Name, scaleToReplicas, latestModel.GetMeta().Name)
 					s.store.UpdateServerScaleToReplicas(candidateServer.Name, int32(scaleToReplicas))
+					s.muSortAndUpdate.Unlock()
 					break
 				}
+
+				s.muSortAndUpdate.Unlock()
 				logger.Debugf("cann't scale up server %s to %d replicas for model %s", candidateServer.Name, scaleToReplicas, latestModel.GetMeta().Name)
 				
 				continue
 			}
-			s.sortReplicas(candidateReplicas)
+			candidateReplicas.SortReplicas(s.replicaSorts)
 			err = s.store.UpdateLoadedModels(
 				modelName, latestModel.GetVersion(), 
 				candidateServer.Name, 
-				candidateReplicas.ChosenReplicas[0:latestModel.DesiredReplicas()],
-			)
+				candidateReplicas.ChosenReplicas[0:latestModel.DesiredReplicas()])
 			s.muSortAndUpdate.Unlock()
 
 			if err != nil {
@@ -214,41 +215,17 @@ func (s *SimpleScheduler) scheduleToServer(modelName string) error {
 	return s.scaleDownServerIfNeed()
 }
 
-// FIXME 暂时采用最简单的策略，当最大的模型副本数小于 server 副本数时，触发scale down。
-// 这个策略没有考虑到 available memory, 因此会出现scale down 过于激进的问题，需要尽快完善
 func (s *SimpleScheduler) scaleDownServerIfNeed() error {
-	serverMaxModelReplicas := map[string]int{}
-	models, err := s.store.GetModels()
+	servers, err := s.store.GetServers(false, true)
 	if err != nil {
 		return err
 	}
-	for _, model := range models {
-		modelVersion := model.GetLatest()
-		if !modelVersion.HasServer() {
-			continue
-		}
-		serverKey := modelVersion.Server()
-		maxModelReplicas, ok := serverMaxModelReplicas[modelVersion.Server()]
-		if !ok {
-			maxModelReplicas = 0
-		}
 
-		if modelVersion.DesiredReplicas() > maxModelReplicas {
-			serverMaxModelReplicas[serverKey] = modelVersion.DesiredReplicas()
-		}
-	}
-
-	for serverKey, maxModelReplicas := range serverMaxModelReplicas {
-		server, err := s.store.GetServer(serverKey, true, false)
-		if err != nil {
-			return err
-		}
-		if server.ExpectedReplicas > maxModelReplicas {
-			scaleToReplicas := calScaleToReplicas(server, maxModelReplicas, server.ExpectedReplicas)
-			if s.serverScalable(server, nil, scaleToReplicas) {
-				s.logger.Debugf("scale down server %s to %d replicas", server.Name, scaleToReplicas)
-				s.store.UpdateServerScaleToReplicas(server.Name, int32(scaleToReplicas))
-			}
+	for _, server := range servers {
+		scaleToReplicas := server.ExpectedReplicas - 1
+		if s.scaler.Scalable(server.Name, scaleToReplicas, nil) {
+			s.logger.Debugf("scale down server %s to %d replicas", server.Name, scaleToReplicas)
+			s.store.UpdateServerScaleToReplicas(server.Name, int32(scaleToReplicas))
 		}
 	}
 	return nil
@@ -263,57 +240,6 @@ func calScaleToReplicas(server *store.ServerSnapshot, desiredReplicas int, avail
 		scaleToReplicas = server.MinReplicas
 	}
 	return scaleToReplicas
-}
-
-func (s *SimpleScheduler) serverScalable(server *store.ServerSnapshot, model *store.ModelVersion, scaleToReplicas int) bool {
-
-	logger := s.logger.WithField("func", "serverScalable")
-
-	autoscalingEnabled := server.MinReplicas > 0 || server.MaxReplicas > 0
-	if !autoscalingEnabled {
-		return false
-	}
-
-	// check whether the server is during scaling
-	if len(server.Replicas) != server.ExpectedReplicas {
-		logger.Debugf("server %s is not scalable as its state is not stable", server.Name)
-		return false
-	}
-
-	// check the capbilities of server
-	if model != nil {
-		capable := false
-		for _, replica := range server.Replicas {
-			ok := true
-			for _, replicaFilter := range s.serverScalableFilter {
-				if !replicaFilter.Filter(model, replica) {
-					ok = false
-					break
-				}
-			}
-			if ok {
-				capable = true
-				break
-			}
-		}
-
-		if !capable {
-			logger.Debugf("server %s is not scalable for model %s because of capability mismatch", server.Name, model.GetMeta().Name)
-			return false
-		}
-	}
-
-	return checkDesiredNumReplicas(server, scaleToReplicas)
-}
-
-func checkDesiredNumReplicas(server *store.ServerSnapshot, replicas int) bool {
-	if replicas == server.ExpectedReplicas {
-		return false
-	} else if replicas > server.ExpectedReplicas {
-		return replicas <= server.MaxReplicas || server.MaxReplicas <= 0
-	} else {
-		return replicas >= server.MinReplicas && replicas > 0
-	}
 }
 
 func showServerSlice(servers []*store.ServerSnapshot) string {
@@ -351,18 +277,6 @@ func showReplicaSlice(candidateServer *sorters.CandidateServer) string {
 	return sb.String()
 }
 
-func (s *SimpleScheduler) sortReplicas(candidateServer *sorters.CandidateServer) {
-	logger := s.logger.WithField("func", "sortReplicas")
-	for _, sorter := range s.replicaSorts {
-		logger.Debugf("About to sort replicas for %s:%d with %s: %s", candidateServer.Model.Key(), candidateServer.Model.GetVersion(), sorter.Name(), showReplicaSlice(candidateServer))
-		sort.SliceStable(candidateServer.ChosenReplicas, func(i, j int) bool {
-			return sorter.IsLess(&sorters.CandidateReplica{Model: candidateServer.Model, Server: candidateServer.Server, Replica: candidateServer.ChosenReplicas[i]},
-				&sorters.CandidateReplica{Model: candidateServer.Model, Server: candidateServer.Server, Replica: candidateServer.ChosenReplicas[j]})
-		})
-		logger.Debugf("Sorted replicas for %s:%d with %s: %s", candidateServer.Model.Key(), candidateServer.Model.GetVersion(), sorter.Name(), showReplicaSlice(candidateServer))
-	}
-}
-
 // Filter servers for this model
 func (s *SimpleScheduler) filterServers(model *store.ModelVersion, servers []*store.ServerSnapshot) []*store.ServerSnapshot {
 	logger := s.logger.WithField("func", "filterServer").WithField("model", model.GetMeta().GetName())
@@ -391,36 +305,4 @@ func (s *SimpleScheduler) filterServers(model *store.ModelVersion, servers []*st
 	}
 
 	return filteredServers
-}
-
-func (s *SimpleScheduler) filterReplicas(model *store.ModelVersion, server *store.ServerSnapshot) *sorters.CandidateServer {
-	logger := s.logger.
-		WithField("func", "filterReplicas").
-		WithField("model", model.GetMeta().GetName()).
-		WithField("server", server.Name)
-	logger.Debug("Filtering server replicas for model")
-
-	candidateServer := sorters.CandidateServer{Model: model, Server: server}
-	for _, replica := range server.Replicas {
-		ok := true
-		for _, replicaFilter := range s.replicaFilters {
-			if !replicaFilter.Filter(model, replica) {
-				logger.
-					WithField("filter", replicaFilter.Name()).
-					WithField("replica", replica.GetReplicaIdx()).
-					WithField("reason", replicaFilter.Description(model, replica)).
-					Debug("Rejecting server replica for model")
-
-				ok = false
-				break
-			}
-		}
-
-		if ok {
-			logger.WithField("replica", replica.GetReplicaIdx()).Debug("Accepting server replica for model")
-			candidateServer.ChosenReplicas = append(candidateServer.ChosenReplicas, replica)
-		}
-	}
-
-	return &candidateServer
 }
