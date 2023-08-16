@@ -56,8 +56,9 @@ var (
 	nodeID                     string
 	allowPlaintxt              bool //scheduler server
 	autoscalingDisabled        bool
+	stabilizationWindowSeconds uint64
+	scalingPeriodSeconds       uint64
 	kafkaConfigPath            string
-	stabilizationWindowSeconds int64
 )
 
 func init() {
@@ -105,7 +106,8 @@ func init() {
 		"/mnt/config/kafka.json",
 		"Path to kafka configuration file",
 	)
-	flag.Int64Var(&stabilizationWindowSeconds, "stabilization-window-seconds", 1800, "Stabilizaition widionw before scaling down server replica, default 1800")
+	flag.Uint64Var(&stabilizationWindowSeconds, "stabilization-window-seconds", 1800, "Stabilizaition widionw before scaling down server replica, default 1800")
+	flag.Uint64Var(&scalingPeriodSeconds, "scaling-period-seconds", 60, "Scaling period in seconds, default 60")
 }
 
 func getNamespace() string {
@@ -232,6 +234,14 @@ func main() {
 	} else {
 		log.Warn("Not running with scheduler local DB")
 	}
+
+	serverScalingService := scheduler.NewServerScalingService(
+		ss, scaler, scalingPeriodSeconds, logger)
+	err = serverScalingService.Start()
+	if err != nil {
+		log.WithError(err).Fatalf("start server scaling service error")
+	}
+	defer func() { _ = serverScalingService.Stop() }()
 
 	s := schedulerServer.NewSchedulerServer(logger, ss, es, ps, sched, eventHub)
 	err = s.StartGrpcServers(allowPlaintxt, schedulerPort, schedulerMtlsPort)
