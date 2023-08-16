@@ -40,7 +40,7 @@ type ScalerConfig struct {
 	stabilizationWindow   time.Duration
 }
 
-func DefaultScalerConfig(stabilizationWindowSeconds int64) ScalerConfig {
+func DefaultScalerConfig(stabilizationWindowSeconds uint64) ScalerConfig {
 	return ScalerConfig{
 		scaleUpReplicaFilters: []filters.ReplicaFilter{filters.ExplainerFilter{}},
 		replicaFilters:        []filters.ReplicaFilter{filters.AvailableMemoryReplicaFilter{}, filters.ExplainerFilter{}, filters.ReplicaDrainingFilter{}},
@@ -99,7 +99,7 @@ func (scaler *memoryServerScaler) Scalable(serverKey string, replicas int, model
 	} else {
 		replica := server.Replicas[server.ExpectedReplicas-1]
 		if time.Since(replica.GetCreateTime()) < scaler.scalerConfig.stabilizationWindow {
-			logger.Debugf("cannt scale down server %s since its latest replica was created in the last %f seconds", server.Name, scaler.scalerConfig.stabilizationWindow.Seconds())
+			logger.Debugf("cannt scale down server %s since its latest replica was created in the last %d seconds", server.Name, int(scaler.scalerConfig.stabilizationWindow.Seconds()))
 			return false
 		}
 

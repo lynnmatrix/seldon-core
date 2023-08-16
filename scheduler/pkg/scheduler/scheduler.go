@@ -213,23 +213,6 @@ func (s *SimpleScheduler) scheduleToServer(modelName string) error {
 
 	//TODO Cleanup previous version if needed?
 
-	return s.scaleDownServerIfNeed()
-}
-
-func (s *SimpleScheduler) scaleDownServerIfNeed() error {
-	servers, err := s.store.GetServers(false, true)
-	if err != nil {
-		return err
-	}
-
-	for _, server := range servers {
-		scaleToReplicas := server.ExpectedReplicas - 1
-
-		if s.scaler.Scalable(server.Name, scaleToReplicas, nil) {
-			s.logger.Debugf("scale down server %s to %d replicas", server.Name, scaleToReplicas)
-			s.store.UpdateServerScaleToReplicas(server.Name, int32(scaleToReplicas))
-		}
-	}
 	return nil
 }
 
