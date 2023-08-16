@@ -153,7 +153,8 @@ func TestStatsAnalyserSoak(t *testing.T) {
 
 	lags := NewModelReplicaLagsKeeper()
 	lastUsed := NewModelReplicaLastUsedKeeper()
-	modelScalingStatsCollector := NewDataPlaneStatsCollector([]interfaces.ModelStatsKeeper{lags, lastUsed}, nil)
+	logger := log.New()
+	modelScalingStatsCollector := NewDataPlaneStatsCollector([]interfaces.ModelStatsKeeper{lags, lastUsed}, logger)
 	service := NewStatsAnalyserService(
 		[]ModelScalingStatsWrapper{
 			{
@@ -171,7 +172,7 @@ func TestStatsAnalyserSoak(t *testing.T) {
 				EventType:   ScaleDownEvent,
 			},
 		},
-		log.New(),
+		logger,
 		statsPeriodSecondsDefault,
 	)
 
