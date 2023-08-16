@@ -175,7 +175,7 @@ func (s *SimpleScheduler) scheduleToServer(modelName string) error {
 				scaleToReplicas := calScaleToReplicas(candidateServer, latestModel.DesiredReplicas(), len(candidateReplicas.ChosenReplicas))
 
 				if s.scaler.Scalable(candidateServer.Name, scaleToReplicas, latestModel) {
-					logger.Debugf("scale up server %s to %d replicas for model %s", candidateServer.Name, scaleToReplicas, latestModel.GetMeta().Name)
+					logger.Debugf("scale up server %s to %d replicas for model %s", candidateServer.Name, scaleToReplicas, modelName)
 					s.store.UpdateServerScaleToReplicas(candidateServer.Name, int32(scaleToReplicas))
 					s.muSortAndUpdate.Unlock()
 					break

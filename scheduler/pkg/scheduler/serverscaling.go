@@ -27,6 +27,12 @@ import (
 	"github.com/seldonio/seldon-core/scheduler/v2/pkg/store"
 )
 
+type DisabledServerScaler struct{}
+
+func (scaler *DisabledServerScaler) Scalable(serverKey string, replicas int, model *store.ModelVersion) bool {
+	return false
+}
+
 type ScalerConfig struct {
 	scaleUpReplicaFilters []filters.ReplicaFilter
 	replicaFilters        []filters.ReplicaFilter

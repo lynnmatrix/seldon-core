@@ -114,7 +114,6 @@ func (f mockStore) DrainServerReplica(serverName string, replicaIdx int) ([]stri
 	panic("implement me")
 }
 
-
 func (f mockStore) UpdateServerScaleToReplicas(serverName string, replicas int32) {
 	panic("implement me")
 }
@@ -503,7 +502,7 @@ func TestScheduler(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			mockStore := newMockStore(test.model, test.servers)
-			scheduler := NewSimpleScheduler(logger, mockStore, DefaultSchedulerConfig(mockStore))
+			scheduler := NewSimpleScheduler(logger, mockStore, DefaultSchedulerConfig(mockStore), &DisabledServerScaler{})
 			err := scheduler.Schedule(test.model.Name)
 			if test.scheduled {
 				g.Expect(err).To(BeNil())
@@ -566,7 +565,7 @@ func TestFailedModels(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			mockStore := newMockStore(test.models)
-			scheduler := NewSimpleScheduler(logger, mockStore, DefaultSchedulerConfig(mockStore))
+			scheduler := NewSimpleScheduler(logger, mockStore, DefaultSchedulerConfig(mockStore), &DisabledServerScaler{})
 			failedMoels, err := scheduler.getFailedModels()
 			g.Expect(err).To(BeNil())
 			sort.Strings(failedMoels)
