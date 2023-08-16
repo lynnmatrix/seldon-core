@@ -185,6 +185,7 @@ type ServerReplica struct {
 	// precomputed values to speed up ops on scheduler
 	uniqueLoadedModels map[string]bool
 	isDraining         bool
+	createdTime         time.Time
 }
 
 func NewServerReplica(inferenceSvc string,
@@ -215,6 +216,7 @@ func NewServerReplica(inferenceSvc string,
 		overCommitPercentage: overCommitPercentage,
 		uniqueLoadedModels:   toUniqueModels(loadedModels),
 		isDraining:           false,
+		createdTime:           time.Now(),
 	}
 }
 
@@ -234,6 +236,7 @@ func NewServerReplicaFromConfig(server *Server, replicaIdx int, loadedModels map
 		overCommitPercentage: config.GetOverCommitPercentage(),
 		uniqueLoadedModels:   toUniqueModels(loadedModels),
 		isDraining:           false,
+		createdTime:           time.Now(),
 	}
 }
 
@@ -624,6 +627,7 @@ func (s *ServerReplica) createSnapshot(modelDetails bool) *ServerReplica {
 		reservedMemory:       s.reservedMemory,
 		uniqueLoadedModels:   uniqueLoadedModels,
 		isDraining:           s.GetIsDraining(),
+		createdTime:           s.createdTime,
 	}
 }
 
@@ -703,6 +707,10 @@ func (s *ServerReplica) SetIsDraining() {
 	defer s.muDrainingState.Unlock()
 
 	s.isDraining = true
+}
+
+func (s *ServerReplica) GetCreateTime() time.Time {
+	return s.createdTime
 }
 
 func (s *ServerReplica) UpdateReservedMemory(memBytes uint64, isAdd bool) {

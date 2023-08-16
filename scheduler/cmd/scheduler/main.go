@@ -40,23 +40,24 @@ import (
 )
 
 var (
-	envoyPort               uint
-	agentPort               uint
-	agentMtlsPort           uint
-	schedulerPort           uint
-	schedulerMtlsPort       uint
-	chainerPort             uint
-	namespace               string
-	pipelineGatewayHost     string
-	pipelineGatewayHttpPort int
-	pipelineGatewayGrpcPort int
-	logLevel                string
-	tracingConfigPath       string
-	dbPath                  string
-	nodeID                  string
-	allowPlaintxt           bool //scheduler server
-	autoscalingDisabled     bool
-	kafkaConfigPath         string
+	envoyPort                  uint
+	agentPort                  uint
+	agentMtlsPort              uint
+	schedulerPort              uint
+	schedulerMtlsPort          uint
+	chainerPort                uint
+	namespace                  string
+	pipelineGatewayHost        string
+	pipelineGatewayHttpPort    int
+	pipelineGatewayGrpcPort    int
+	logLevel                   string
+	tracingConfigPath          string
+	dbPath                     string
+	nodeID                     string
+	allowPlaintxt              bool //scheduler server
+	autoscalingDisabled        bool
+	kafkaConfigPath            string
+	stabilizationWindowSeconds int64
 )
 
 func init() {
@@ -104,6 +105,7 @@ func init() {
 		"/mnt/config/kafka.json",
 		"Path to kafka configuration file",
 	)
+	flag.Int64Var(&stabilizationWindowSeconds, "stabilization-window-seconds", 1800, "Stabilizaition widionw before scaling down server replica")
 }
 
 func getNamespace() string {
@@ -187,7 +189,9 @@ func main() {
 		logger,
 		ss,
 		scheduler.DefaultSchedulerConfig(ss),
+		scheduler.NewMemoryServerScaler(ss, scheduler.DefaultScalerConfig(stabilizationWindowSeconds), logger),
 	)
+	
 	logger.Infof("Autoscaling service is set to %t", !autoscalingDisabled)
 	as := agent.NewAgentServer(logger, ss, sched, eventHub, !autoscalingDisabled)
 

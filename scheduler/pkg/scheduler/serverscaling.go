@@ -18,6 +18,7 @@ package scheduler
 
 import (
 	"fmt"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 
@@ -30,13 +31,15 @@ type ScalerConfig struct {
 	scaleUpReplicaFilters []filters.ReplicaFilter
 	replicaFilters        []filters.ReplicaFilter
 	replicaSorts          []sorters.ReplicaSorter
+	stabilizationWindow   time.Duration
 }
 
-func DefaultScalerConfig() ScalerConfig {
+func DefaultScalerConfig(stabilizationWindowSeconds int64) ScalerConfig {
 	return ScalerConfig{
 		scaleUpReplicaFilters: []filters.ReplicaFilter{filters.ExplainerFilter{}},
 		replicaFilters:        []filters.ReplicaFilter{filters.AvailableMemoryReplicaFilter{}, filters.ExplainerFilter{}, filters.ReplicaDrainingFilter{}},
 		replicaSorts:          []sorters.ReplicaSorter{sorters.ReplicaIndexSorter{}, sorters.AvailableMemorySorter{}, sorters.ModelAlreadyLoadedSorter{}},
+		stabilizationWindow:   time.Duration(stabilizationWindowSeconds) * time.Second,
 	}
 }
 
@@ -88,6 +91,12 @@ func (scaler *memoryServerScaler) Scalable(serverKey string, replicas int, model
 		}
 		return true
 	} else {
+		replica := server.Replicas[server.ExpectedReplicas-1]
+		if time.Since(replica.GetCreateTime()) < scaler.scalerConfig.stabilizationWindow {
+			logger.Debugf("cannt scale down server %s since its latest replica was created in the last %f seconds", server.Name, scaler.scalerConfig.stabilizationWindow.Seconds())
+			return false
+		}
+
 		// check avaliable memory to scale down
 		err := scaler.checkAvaliableMemory(server, replicas)
 		if err != nil {

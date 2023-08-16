@@ -49,11 +49,12 @@ func DefaultSchedulerConfig(store store.ModelStore) SchedulerConfig {
 
 func NewSimpleScheduler(logger log.FieldLogger,
 	store store.ModelStore,
-	schedulerConfig SchedulerConfig) *SimpleScheduler {
+	schedulerConfig SchedulerConfig,
+	scaler ServerScaler) *SimpleScheduler {
 	s := &SimpleScheduler{
 		store:           store,
 		logger:          logger.WithField("Name", "SimpleScheduler"),
-		scaler:          NewMemoryServerScaler(store, DefaultScalerConfig(), logger),
+		scaler:          scaler,
 		SchedulerConfig: schedulerConfig,
 	}
 	return s
@@ -223,6 +224,7 @@ func (s *SimpleScheduler) scaleDownServerIfNeed() error {
 
 	for _, server := range servers {
 		scaleToReplicas := server.ExpectedReplicas - 1
+
 		if s.scaler.Scalable(server.Name, scaleToReplicas, nil) {
 			s.logger.Debugf("scale down server %s to %d replicas", server.Name, scaleToReplicas)
 			s.store.UpdateServerScaleToReplicas(server.Name, int32(scaleToReplicas))
