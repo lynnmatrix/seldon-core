@@ -105,7 +105,7 @@ func init() {
 		"/mnt/config/kafka.json",
 		"Path to kafka configuration file",
 	)
-	flag.Int64Var(&stabilizationWindowSeconds, "stabilization-window-seconds", 1800, "Stabilizaition widionw before scaling down server replica")
+	flag.Int64Var(&stabilizationWindowSeconds, "stabilization-window-seconds", 1800, "Stabilizaition widionw before scaling down server replica, default 1800")
 }
 
 func getNamespace() string {
@@ -184,14 +184,20 @@ func main() {
 	if err != nil {
 		log.WithError(err).Fatalf("Failed to create incremental processor")
 	}
+	var scaler scheduler.ServerScaler
+	if autoscalingDisabled {
+		scaler = &scheduler.DisabledServerScaler{}
+	} else {
+		scaler = scheduler.NewMemoryServerScaler(ss, scheduler.DefaultScalerConfig(stabilizationWindowSeconds), logger)
+	}
 
 	sched := scheduler.NewSimpleScheduler(
 		logger,
 		ss,
 		scheduler.DefaultSchedulerConfig(ss),
-		scheduler.NewMemoryServerScaler(ss, scheduler.DefaultScalerConfig(stabilizationWindowSeconds), logger),
+		scaler,
 	)
-	
+
 	logger.Infof("Autoscaling service is set to %t", !autoscalingDisabled)
 	as := agent.NewAgentServer(logger, ss, sched, eventHub, !autoscalingDisabled)
 

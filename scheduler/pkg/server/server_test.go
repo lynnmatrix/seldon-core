@@ -60,7 +60,8 @@ func TestLoadModel(t *testing.T) {
 		scheduler := scheduler2.NewSimpleScheduler(
 			logger,
 			schedulerStore,
-			scheduler2.DefaultSchedulerConfig(schedulerStore),
+			scheduler2.DefaultSchedulerConfig(schedulerStore)),
+			&scheduler2.DisabledServerScaler{},
 		)
 		s := NewSchedulerServer(logger, schedulerStore, experimentServer, pipelineServer, scheduler, eventHub)
 		mockAgent := &mockAgentHandler{}
@@ -336,7 +337,8 @@ func TestUnloadModel(t *testing.T) {
 		mockAgent := &mockAgentHandler{}
 		scheduler := scheduler2.NewSimpleScheduler(logger,
 			schedulerStore,
-			scheduler2.DefaultSchedulerConfig(schedulerStore))
+			scheduler2.DefaultSchedulerConfig(schedulerStore),
+			&scheduler2.DisabledServerScaler{})
 		s := NewSchedulerServer(logger, schedulerStore, experimentServer, pipelineServer, scheduler, eventHub)
 		return s, mockAgent, eventHub
 	}
