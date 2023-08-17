@@ -43,7 +43,7 @@ type ScalerConfig struct {
 func DefaultScalerConfig(stabilizationWindowSeconds uint64) ScalerConfig {
 	return ScalerConfig{
 		scaleUpReplicaFilters: []filters.ReplicaFilter{filters.ExplainerFilter{}},
-		replicaFilters:        []filters.ReplicaFilter{filters.AvailableMemoryReplicaFilter{}, filters.ExplainerFilter{}, filters.ReplicaDrainingFilter{}},
+		replicaFilters:        []filters.ReplicaFilter{filters.AvailableMemoryReplicaFilter{Affinity: false}, filters.ExplainerFilter{}, filters.ReplicaDrainingFilter{}},
 		replicaSorts:          []sorters.ReplicaSorter{sorters.ReplicaIndexSorter{}, sorters.AvailableMemorySorter{}, sorters.ModelAlreadyLoadedSorter{}},
 		stabilizationWindow:   time.Duration(stabilizationWindowSeconds) * time.Second,
 	}

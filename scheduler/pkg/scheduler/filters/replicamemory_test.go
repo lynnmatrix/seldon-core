@@ -43,6 +43,7 @@ func TestReplicaMemoryFilter(t *testing.T) {
 
 	type test struct {
 		name     string
+		affinity bool
 		model    *store.ModelVersion
 		server   *store.ServerReplica
 		expected bool
@@ -50,17 +51,18 @@ func TestReplicaMemoryFilter(t *testing.T) {
 
 	memory := uint64(100)
 	tests := []test{
-		{name: "EnoughMemory", model: getTestModelWithMemory(&memory, "", -1), server: getTestServerReplicaWithMemory(100, 0, "server1", 0), expected: true},
-		{name: "NoMemorySpecified", model: getTestModelWithMemory(nil, "", -1), server: getTestServerReplicaWithMemory(200, 0, "server1", 0), expected: true},
-		{name: "NotEnoughMemory", model: getTestModelWithMemory(&memory, "", -1), server: getTestServerReplicaWithMemory(50, 0, "server1", 0), expected: false},
-		{name: "NotEnoughMemoryWithReserved", model: getTestModelWithMemory(&memory, "", -1), server: getTestServerReplicaWithMemory(200, 150, "server1", 0), expected: false},
-		{name: "NotEnoughMemoryWithReservedOverflow", model: getTestModelWithMemory(&memory, "", -1), server: getTestServerReplicaWithMemory(200, 250, "server1", 0), expected: false},
-		{name: "ModelAlreadyLoaded", model: getTestModelWithMemory(&memory, "server1", 0), server: getTestServerReplicaWithMemory(0, 0, "server1", 0), expected: true}, // note not enough memory on server replica
+		{name: "EnoughMemory", affinity: true, model: getTestModelWithMemory(&memory, "", -1), server: getTestServerReplicaWithMemory(100, 0, "server1", 0), expected: true},
+		{name: "NoMemorySpecified", affinity: true, model: getTestModelWithMemory(nil, "", -1), server: getTestServerReplicaWithMemory(200, 0, "server1", 0), expected: true},
+		{name: "NotEnoughMemory", affinity: true, model: getTestModelWithMemory(&memory, "", -1), server: getTestServerReplicaWithMemory(50, 0, "server1", 0), expected: false},
+		{name: "NotEnoughMemoryWithReserved", affinity: true, model: getTestModelWithMemory(&memory, "", -1), server: getTestServerReplicaWithMemory(200, 150, "server1", 0), expected: false},
+		{name: "NotEnoughMemoryWithReservedOverflow", affinity: true, model: getTestModelWithMemory(&memory, "", -1), server: getTestServerReplicaWithMemory(200, 250, "server1", 0), expected: false},
+		{name: "ModelAlreadyLoaded", affinity: true, model: getTestModelWithMemory(&memory, "server1", 0), server: getTestServerReplicaWithMemory(0, 0, "server1", 0), expected: true}, // note not enough memory on server replica
+		{name: "AntiAffiniy", affinity: false, model: getTestModelWithMemory(&memory, "server1", 0), server: getTestServerReplicaWithMemory(200, 0, "server1", 0), expected: false},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			filter := AvailableMemoryReplicaFilter{}
+			filter := AvailableMemoryReplicaFilter{Affinity: test.affinity}
 			ok := filter.Filter(test.model, test.server)
 			g.Expect(ok).To(Equal(test.expected))
 		})
