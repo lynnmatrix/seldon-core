@@ -16,7 +16,9 @@ import (
 	"github.com/seldonio/seldon-core/scheduler/v2/pkg/store"
 )
 
-type AvailableMemoryReplicaFilter struct{}
+type AvailableMemoryReplicaFilter struct {
+	Affinity bool
+}
 
 func (r AvailableMemoryReplicaFilter) Name() string {
 	return "AvailableMemoryReplicaFilter"
@@ -31,7 +33,11 @@ func isModelReplicaLoadedOnServerReplica(model *store.ModelVersion, replica *sto
 
 func (r AvailableMemoryReplicaFilter) Filter(model *store.ModelVersion, replica *store.ServerReplica) bool {
 	mem := math.Max(0, float64(replica.GetAvailableMemory())-float64(replica.GetReservedMemory()))
-	return model.GetRequiredMemory() <= uint64(mem) || isModelReplicaLoadedOnServerReplica(model, replica)
+	if r.Affinity {
+		return model.GetRequiredMemory() <= uint64(mem) || isModelReplicaLoadedOnServerReplica(model, replica)
+	} else {
+		return model.GetRequiredMemory() <= uint64(mem) && !isModelReplicaLoadedOnServerReplica(model, replica)
+	}
 }
 
 func (r AvailableMemoryReplicaFilter) Description(model *store.ModelVersion, replica *store.ServerReplica) string {
