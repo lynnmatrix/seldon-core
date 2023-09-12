@@ -215,14 +215,3 @@ func (scaler *memoryServerScaler) checkCapability(server *store.ServerSnapshot, 
 	}
 	return nil
 }
-
-func getScaleToReplicas(server *store.ServerSnapshot, desiredReplicas int, availableReplicas int) int {
-	scaleToReplicas := server.ExpectedReplicas + (desiredReplicas - availableReplicas)
-	if server.MaxReplicas > 0 && scaleToReplicas > server.MaxReplicas {
-		scaleToReplicas = server.MaxReplicas
-	}
-	if server.MinReplicas > 0 && scaleToReplicas < server.MinReplicas {
-		scaleToReplicas = server.MinReplicas
-	}
-	return scaleToReplicas
-}
