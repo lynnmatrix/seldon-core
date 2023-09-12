@@ -104,6 +104,14 @@ func (s *ServerSpec) Default() {
 	s.ScalingSpec.Default()
 }
 
+func (s *Server) Validate() error {
+	return s.Spec.Validate()
+}
+
+func (s *ServerSpec) Validate() error {
+	return s.ScalingSpec.Validate()
+}
+
 const (
 	StatefulSetReady apis.ConditionType = "StatefulSetReady"
 )

@@ -40,7 +40,7 @@ func (s *SchedulerClient) ServerNotify(ctx context.Context, server *v1alpha1.Ser
 	} else if server.Spec.Replicas != nil {
 		replicas = *server.Spec.Replicas
 	} else {
-		replicas = 1
+		return fmt.Errorf("the number fo server replicas should be non-nil here")
 	}
 
 	var minReplicas, maxReplicas int32

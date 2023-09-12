@@ -74,10 +74,36 @@ type ScalingSpec struct {
 }
 
 func (s *ScalingSpec) Default() {
-	defaultReplicas := int32(1)
+
 	if s.Replicas == nil {
+		defaultReplicas := int32(1)
+		if s.MinReplicas != nil && *s.MinReplicas > 0 {
+			defaultReplicas = *s.MinReplicas
+		}
 		s.Replicas = &defaultReplicas
 	}
+}
+
+func (s *ScalingSpec) Validate() error {
+	if s.MinReplicas != nil && s.MaxReplicas != nil {
+		if *s.MinReplicas > *s.MaxReplicas {
+			return fmt.Errorf("invalid scaling spec. MinReplicas(%d) should be <= MaxReplicas(%d)", *s.MinReplicas, *s.MaxReplicas)
+		}
+	}
+	if s.Replicas == nil {
+		return nil
+	}
+	if s.MinReplicas != nil {
+		if *s.Replicas < *s.MinReplicas {
+			return fmt.Errorf("invalid scaling spec. Replicas(%d) should be >= MinReplicas(%d)", *s.Replicas, *s.MinReplicas)
+		}
+	}
+	if s.MaxReplicas != nil {
+		if *s.Replicas > *s.MaxReplicas {
+			return fmt.Errorf("invalid scaling spec. Replicas(%d) should be <= MaxReplicas(%d)", *s.Replicas, *s.MaxReplicas)
+		}
+	}
+	return nil
 }
 
 type LoggingSpec struct {
