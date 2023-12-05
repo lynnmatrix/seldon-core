@@ -41,5 +41,11 @@ func (r AvailableMemoryReplicaFilter) Filter(model *store.ModelVersion, replica 
 }
 
 func (r AvailableMemoryReplicaFilter) Description(model *store.ModelVersion, replica *store.ServerReplica) string {
-	return fmt.Sprintf("model memory %d replica memory %d", model.GetRequiredMemory(), replica.GetAvailableMemory())
+	return fmt.Sprintf(
+		"model memory: %d, replica memory: %d, reserved memory: %d, loaded: %t",
+		model.GetRequiredMemory(),
+		replica.GetAvailableMemory(),
+		replica.GetReservedMemory(),
+		isModelReplicaLoadedOnServerReplica(model, replica),
+	)
 }
