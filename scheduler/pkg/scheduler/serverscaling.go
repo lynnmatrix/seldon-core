@@ -49,6 +49,24 @@ func DefaultScalerConfig(stabilizationWindowSeconds uint64) ScalerConfig {
 	}
 }
 
+type SimulateRecord struct {
+	server         *store.ServerSnapshot
+	reservedMemory map[int]uint64
+}
+
+func (r *SimulateRecord) Add(replica *store.ServerReplica, memory uint64) {
+	replica.UpdateReservedMemory(memory, true)
+	replicaIdx := replica.GetReplicaIdx()
+	r.reservedMemory[replicaIdx] += memory
+}
+
+func (r *SimulateRecord) ReleaseReservedMemory() {
+	for replicaIdx, memory := range r.reservedMemory {
+		replica := r.server.Replicas[replicaIdx]
+		replica.UpdateReservedMemory(memory, false)
+	}
+}
+
 type memoryServerScaler struct {
 	store        store.ModelStore
 	scalerConfig ScalerConfig
@@ -157,23 +175,29 @@ func filterReplicas(filters []filters.ReplicaFilter, model *store.ModelVersion, 
 
 // simulate the process of server replicas scaling down to determine whether there is enough memory
 func (scaler *memoryServerScaler) checkAvaliableMemory(server *store.ServerSnapshot, replicas int) error {
+	simulateRecord := SimulateRecord{server: server}
+	defer simulateRecord.ReleaseReservedMemory()
+
 	scaleDownReplicaIdx := server.ExpectedReplicas - 1
 	for scaleDownReplicaIdx > replicas-1 {
-		err := scaler.simulateDrainReplica(server, replicas, scaleDownReplicaIdx)
+		err := scaler.simulateDrainReplica(server, replicas, scaleDownReplicaIdx, &simulateRecord)
 		if err != nil {
 			return err
 		}
 		scaleDownReplicaIdx--
 	}
-
 	return nil
 }
 
-func (scaler *memoryServerScaler) simulateDrainReplica(server *store.ServerSnapshot, scaleToReplicas int, drainReplicaIdx int) error {
-
+func (scaler *memoryServerScaler) simulateDrainReplica(
+	server *store.ServerSnapshot,
+	scaleToReplicas int,
+	drainReplicaIdx int,
+	simulateRecord *SimulateRecord,
+) error {
 	scaleDownReplica := server.Replicas[drainReplicaIdx]
 	for _, modelVersionId := range scaleDownReplica.GetLoadedOrLoadingModelVersions() {
-		err := scaler.simulateDrainModel(server, scaleToReplicas, modelVersionId)
+		err := scaler.simulateDrainModel(server, scaleToReplicas, modelVersionId, simulateRecord)
 		if err != nil {
 			return err
 		}
@@ -181,7 +205,12 @@ func (scaler *memoryServerScaler) simulateDrainReplica(server *store.ServerSnaps
 	return nil
 }
 
-func (scaler *memoryServerScaler) simulateDrainModel(server *store.ServerSnapshot, scaleToReplicas int, drainModelVersionId store.ModelVersionID) error {
+func (scaler *memoryServerScaler) simulateDrainModel(
+	server *store.ServerSnapshot,
+	scaleToReplicas int,
+	drainModelVersionId store.ModelVersionID,
+	simulateRecord *SimulateRecord,
+) error {
 	model, err := scaler.store.GetModel(drainModelVersionId.Name)
 	if err != nil {
 		return fmt.Errorf("failed to get mdoel %s", drainModelVersionId.Name)
@@ -203,7 +232,8 @@ func (scaler *memoryServerScaler) simulateDrainModel(server *store.ServerSnapsho
 	candidateServer.SortReplicas(scaler.scalerConfig.replicaSorts)
 
 	chosenReplica := candidateServer.ChosenReplicas[0]
-	chosenReplica.UpdateReservedMemory(modelVersion.GetRequiredMemory(), true)
+	simulateRecord.Add(chosenReplica, modelVersion.GetRequiredMemory())
+
 	return nil
 }
 
